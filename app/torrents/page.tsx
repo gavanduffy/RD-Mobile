@@ -21,6 +21,9 @@ export default function TorrentsPage() {
   const [error, setError] = useState('')
   const [magnetLink, setMagnetLink] = useState('')
   const [addingTorrent, setAddingTorrent] = useState(false)
+  const [uploadingFile, setUploadingFile] = useState(false)
+  const [selectedTorrent, setSelectedTorrent] = useState<string | null>(null)
+  const [streamingLinks, setStreamingLinks] = useState<{[key: string]: string}>({})
 
   useEffect(() => {
     const apiKey = localStorage.getItem('rd_api_key')
@@ -73,6 +76,56 @@ export default function TorrentsPage() {
     }
   }
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    try {
+      setUploadingFile(true)
+      await rdApi.addTorrentFile(file)
+      e.target.value = '' // Reset file input
+      await loadTorrents()
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to upload torrent file')
+    } finally {
+      setUploadingFile(false)
+    }
+  }
+
+  const handleGenerateStreamingLink = async (torrentId: string) => {
+    try {
+      const torrentInfo = await rdApi.getTorrentInfo(torrentId)
+      if (torrentInfo.data.links && torrentInfo.data.links.length > 0) {
+        // Unrestrict the first link to get streaming access
+        const unrestrictedLink = await rdApi.unrestrictLink(torrentInfo.data.links[0])
+        
+        if (unrestrictedLink.data.id) {
+          // Get streaming transcode link
+          const streamingData = await rdApi.getStreamingTranscode(unrestrictedLink.data.id)
+          
+          if (streamingData.data && streamingData.data.apple && streamingData.data.apple.full) {
+            setStreamingLinks({
+              ...streamingLinks,
+              [torrentId]: streamingData.data.apple.full
+            })
+            setSelectedTorrent(torrentId)
+          } else {
+            setError('No streaming link available for this file')
+          }
+        }
+      } else {
+        setError('Torrent must be downloaded first. Try selecting files if not done already.')
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to generate streaming link')
+    }
+  }
+
+  const handleCopyStreamingLink = (link: string) => {
+    navigator.clipboard.writeText(link)
+    alert('Streaming link copied to clipboard!')
+  }
+
   if (loading) {
     return (
       <div className="flex justify-center items-center min-h-[400px]">
@@ -99,23 +152,60 @@ export default function TorrentsPage() {
       {/* Add Torrent Form */}
       <div className="card">
         <h2 className="text-xl font-semibold mb-4">Add New Torrent</h2>
-        <form onSubmit={handleAddTorrent} className="space-y-4">
-          <input
-            type="text"
-            placeholder="Paste magnet link here..."
-            value={magnetLink}
-            onChange={(e) => setMagnetLink(e.target.value)}
-            className="input-field"
-            disabled={addingTorrent}
-          />
+        
+        {/* Magnet Link */}
+        <form onSubmit={handleAddTorrent} className="space-y-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium mb-2">Magnet Link</label>
+            <input
+              type="text"
+              placeholder="magnet:?xt=urn:btih:..."
+              value={magnetLink}
+              onChange={(e) => setMagnetLink(e.target.value)}
+              className="input-field"
+              disabled={addingTorrent}
+            />
+          </div>
           <button
             type="submit"
             disabled={addingTorrent || !magnetLink.trim()}
             className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {addingTorrent ? 'Adding...' : 'Add Torrent'}
+            {addingTorrent ? 'Adding...' : '🧲 Add Magnet Link'}
           </button>
         </form>
+
+        {/* Divider */}
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-700"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-2 bg-rd-dark text-gray-400">OR</span>
+          </div>
+        </div>
+
+        {/* Torrent File Upload */}
+        <div>
+          <label className="block text-sm font-medium mb-2">Torrent File</label>
+          <input
+            type="file"
+            accept=".torrent"
+            onChange={handleFileUpload}
+            disabled={uploadingFile}
+            className="block w-full text-sm text-gray-400
+              file:mr-4 file:py-2 file:px-4
+              file:rounded-lg file:border-0
+              file:text-sm file:font-semibold
+              file:bg-rd-primary file:text-white
+              hover:file:bg-rd-primary/80
+              file:cursor-pointer cursor-pointer
+              disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          {uploadingFile && (
+            <p className="mt-2 text-sm text-gray-400">Uploading torrent file...</p>
+          )}
+        </div>
       </div>
 
       {/* Torrents List */}
@@ -152,13 +242,49 @@ export default function TorrentsPage() {
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={() => handleDeleteTorrent(torrent.id)}
-                  className="btn-secondary whitespace-nowrap"
-                >
-                  🗑️ Delete
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  {torrent.status === 'downloaded' && (
+                    <button
+                      onClick={() => handleGenerateStreamingLink(torrent.id)}
+                      className="btn-primary whitespace-nowrap"
+                    >
+                      🎬 Stream
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleDeleteTorrent(torrent.id)}
+                    className="btn-secondary whitespace-nowrap"
+                  >
+                    🗑️ Delete
+                  </button>
+                </div>
               </div>
+
+              {/* Streaming Link Display */}
+              {streamingLinks[torrent.id] && selectedTorrent === torrent.id && (
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Streaming Link (HLS)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={streamingLinks[torrent.id]}
+                      readOnly
+                      className="input-field flex-1 text-sm"
+                    />
+                    <button
+                      onClick={() => handleCopyStreamingLink(streamingLinks[torrent.id])}
+                      className="btn-secondary whitespace-nowrap"
+                    >
+                      📋 Copy
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-400">
+                    Use this link in any HLS-compatible video player
+                  </p>
+                </div>
+              )}
             </div>
           ))
         )}

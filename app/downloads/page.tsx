@@ -18,6 +18,7 @@ export default function DownloadsPage() {
   const [downloads, setDownloads] = useState<Download[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [streamingLinks, setStreamingLinks] = useState<{[key: string]: string}>({})
 
   useEffect(() => {
     const apiKey = localStorage.getItem('rd_api_key')
@@ -62,6 +63,37 @@ export default function DownloadsPage() {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+  }
+
+  const handleGenerateStreamingLink = async (downloadId: string) => {
+    try {
+      const streamingData = await rdApi.getStreamingTranscode(downloadId)
+      
+      if (streamingData.data && streamingData.data.apple && streamingData.data.apple.full) {
+        setStreamingLinks({
+          ...streamingLinks,
+          [downloadId]: streamingData.data.apple.full
+        })
+      } else {
+        setError('No streaming link available for this file')
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to generate streaming link')
+    }
+  }
+
+  const handleCopyStreamingLink = (link: string) => {
+    navigator.clipboard.writeText(link)
+    alert('Streaming link copied to clipboard!')
+  }
+
+  const isVideoFile = (mimeType?: string, filename?: string) => {
+    if (mimeType && mimeType.startsWith('video/')) return true
+    if (filename) {
+      const videoExtensions = ['.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
+      return videoExtensions.some(ext => filename.toLowerCase().endsWith(ext))
+    }
+    return false
   }
 
   if (loading) {
@@ -110,6 +142,14 @@ export default function DownloadsPage() {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  {isVideoFile(download.mimeType, download.filename) && (
+                    <button
+                      onClick={() => handleGenerateStreamingLink(download.id)}
+                      className="btn-primary whitespace-nowrap"
+                    >
+                      🎬 Stream
+                    </button>
+                  )}
                   <button
                     onClick={() => handleDownload(download.download, download.filename)}
                     className="btn-primary whitespace-nowrap"
@@ -124,6 +164,32 @@ export default function DownloadsPage() {
                   </button>
                 </div>
               </div>
+
+              {/* Streaming Link Display */}
+              {streamingLinks[download.id] && (
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Streaming Link (HLS)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={streamingLinks[download.id]}
+                      readOnly
+                      className="input-field flex-1 text-sm"
+                    />
+                    <button
+                      onClick={() => handleCopyStreamingLink(streamingLinks[download.id])}
+                      className="btn-secondary whitespace-nowrap"
+                    >
+                      📋 Copy
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-400">
+                    Use this link in any HLS-compatible video player
+                  </p>
+                </div>
+              )}
             </div>
           ))
         )}

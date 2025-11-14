@@ -15,10 +15,14 @@ interface UnrestrictedLink {
 
 export default function UnrestrictPage() {
   const [link, setLink] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [checking, setChecking] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<UnrestrictedLink | null>(null)
+  const [checkResult, setCheckResult] = useState<any>(null)
   const [apiConfigured, setApiConfigured] = useState(false)
+  const [streamingLink, setStreamingLink] = useState<string | null>(null)
 
   useEffect(() => {
     const apiKey = localStorage.getItem('rd_api_key')
@@ -30,6 +34,24 @@ export default function UnrestrictPage() {
     }
   }, [])
 
+  const handleCheckLink = async () => {
+    if (!link.trim()) return
+
+    try {
+      setChecking(true)
+      setError('')
+      setCheckResult(null)
+      
+      const response = await rdApi.checkLink(link, password || undefined)
+      setCheckResult(response.data)
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to check link')
+      setCheckResult(null)
+    } finally {
+      setChecking(false)
+    }
+  }
+
   const handleUnrestrict = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!link.trim()) return
@@ -38,10 +60,26 @@ export default function UnrestrictPage() {
       setLoading(true)
       setError('')
       setResult(null)
+      setStreamingLink(null)
       
-      const response = await rdApi.unrestrictLink(link)
+      const response = await rdApi.unrestrictLink(link, password || undefined)
       setResult(response.data)
+      
+      // Try to get streaming link if it's a video file
+      if (response.data.id) {
+        try {
+          const streamingData = await rdApi.getStreamingTranscode(response.data.id)
+          if (streamingData.data && streamingData.data.apple && streamingData.data.apple.full) {
+            setStreamingLink(streamingData.data.apple.full)
+          }
+        } catch {
+          // Streaming not available, continue without it
+        }
+      }
+      
       setLink('')
+      setPassword('')
+      setCheckResult(null)
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to unrestrict link')
       setResult(null)
@@ -96,15 +134,75 @@ export default function UnrestrictPage() {
               required
             />
           </div>
-          <button
-            type="submit"
-            disabled={loading || !link.trim() || !apiConfigured}
-            className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Processing...' : 'Unrestrict Link'}
-          </button>
+          
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Password (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="Enter password if required..."
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="input-field"
+              disabled={loading || !apiConfigured}
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleCheckLink}
+              disabled={checking || !link.trim() || !apiConfigured}
+              className="btn-secondary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {checking ? 'Checking...' : '🔍 Check Link'}
+            </button>
+            <button
+              type="submit"
+              disabled={loading || !link.trim() || !apiConfigured}
+              className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Processing...' : '🔓 Unrestrict Link'}
+            </button>
+          </div>
         </form>
       </div>
+
+      {/* Check Link Result */}
+      {checkResult && (
+        <div className="card border-blue-500">
+          <h2 className="text-xl font-semibold mb-4 text-blue-400">ℹ️ Link Check Result</h2>
+          
+          <div className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-1">Host</label>
+              <p className="text-white">{checkResult.host}</p>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-400 mb-1">Supported</label>
+              <p className={checkResult.supported ? 'text-green-400' : 'text-red-400'}>
+                {checkResult.supported ? '✓ Yes' : '✗ No'}
+              </p>
+            </div>
+
+            {checkResult.filename && (
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">Filename</label>
+                <p className="text-white break-all">{checkResult.filename}</p>
+              </div>
+            )}
+
+            {checkResult.filesize && (
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">File Size</label>
+                <p className="text-white">{formatBytes(checkResult.filesize)}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Result */}
       {result && (
@@ -153,12 +251,43 @@ export default function UnrestrictPage() {
               </div>
             </div>
 
-            <button
-              onClick={() => handleDownload(result.download, result.filename)}
-              className="btn-primary w-full"
-            >
-              📥 Download File
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleDownload(result.download, result.filename)}
+                className="btn-primary flex-1"
+              >
+                📥 Download File
+              </button>
+            </div>
+
+            {/* Streaming Link */}
+            {streamingLink && (
+              <div className="pt-4 border-t border-gray-700">
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Streaming Link (HLS)
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={streamingLink}
+                    readOnly
+                    className="input-field flex-1 text-sm"
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(streamingLink)
+                      alert('Streaming link copied!')
+                    }}
+                    className="btn-secondary whitespace-nowrap"
+                  >
+                    📋 Copy
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-gray-400">
+                  Use this link in any HLS-compatible video player
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
