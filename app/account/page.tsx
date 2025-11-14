@@ -95,6 +95,7 @@ export default function AccountPage() {
         <div className="card">
           <div className="flex items-center gap-4 mb-6">
             {user.avatar && (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={user.avatar}
                 alt={user.username}

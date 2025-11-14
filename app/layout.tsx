@@ -1,9 +1,6 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
 import './globals.css'
 import Navigation from '@/components/Navigation'
-
-const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'RD-Mobile - Real-Debrid Manager',
@@ -40,7 +37,7 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
       </head>
-      <body className={`${inter.className} bg-rd-darker text-white`}>
+      <body className="bg-rd-darker text-white font-sans">
         <div className="min-h-screen flex flex-col">
           <Navigation />
           <main className="flex-1 container mx-auto px-4 py-6 max-w-7xl">
